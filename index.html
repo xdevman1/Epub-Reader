@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style rel="stylesheet" href="index.ss">
+</head>
+<body>
+
+    <div id="reader">
+        <header id="header">
+            <div class="controls-group left">
+                <button id="toc-toggle" class="btn btn-icon" title="Table of Contents" disabled><i class="fa-solid fa-bars"></i></button>
+                <label for="file-input" class="btn btn-icon" title="Open EPUB File"><i class="fa-solid fa-folder-open"></i></label>
+                <input type="file" id="file-input" accept=".epub">
+                <button id="bookmark-toggle" class="btn btn-icon" title="Add Bookmark" disabled><i class="fa-regular fa-bookmark"></i></button>
+            </div>
+
+            <div class="controls-group center">
+                <button id="prev-btn" class="btn btn-icon" title="Previous Page (←)" disabled><i class="fa-solid fa-chevron-left"></i></button>
+                <div id="book-title-wrapper" style="text-align: center; max-width: 400px;">
+                    <h1 id="book-title">EPUB Reader</h1>
+                    <div id="file-info" style="font-size:0.8rem;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                    <div style="display: flex; justify-content: center; gap: 12px;">
+                        <div id="page-progress"></div>
+                        <div id="reading-time"></div>
+                    </div>
+                </div>
+                <button id="next-btn" class="btn btn-icon" title="Next Page (→)" disabled><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+
+            <div class="controls-group right">
+                <button id="read-aloud-btn" class="btn btn-icon" title="Read Aloud" disabled><i class="fa-solid fa-volume-high"></i></button>
+                <button id="fullscreen-btn" class="btn btn-icon" title="Toggle Fullscreen" disabled><i class="fa-solid fa-expand"></i></button>
+                <button id="notes-toggle" class="btn btn-icon" title="Toggle Notes" disabled><i class="fa-solid fa-note-sticky"></i></button>
+                <button id="settings-toggle" class="btn btn-icon" title="Settings"><i class="fa-solid fa-gear"></i></button>
+            </div>
+        </header>
+
+        <div id="progress-bar"></div>
+
+        <div id="content-wrapper">
+            <nav id="sidebar">
+                <div class="sidebar-tabs">
+                    <div class="sidebar-tab active" data-tab="toc-panel">Contents</div>
+                    <div class="sidebar-tab" data-tab="bookmarks-panel">Bookmarks</div>
+                    <div class="sidebar-tab" data-tab="history-panel">History</div>
+                </div>
+                <div id="toc-panel" class="sidebar-panel active">
+                    <input id="toc-filter" placeholder="Filter contents..." style="width:calc(100% - 16px); margin: 8px; padding:8px;border-radius:6px;border:1px solid var(--border);">
+                    <ul id="toc"></ul>
+                </div>
+                <div id="bookmarks-panel" class="sidebar-panel">
+                    <ul id="bookmarks-list"></ul>
+                    <div id="list-empty" class="bookmarks-empty">No bookmarks yet.</div>
+                </div>
+                <div id="history-panel" class="sidebar-panel">
+                     <button id="clear-history-btn" class="btn" style="width: calc(100% - 16px); margin: 8px;">Clear History</button>
+                    <ul id="history-list"></ul>
+                    <div id="list-empty" class="history-empty">No recently opened books.</div>
+                </div>
+            </nav>
+
+            <main id="main">
+                <div id="upload-area">
+                    <i class="fa-solid fa-book-open"></i>
+                    <p>Drag & Drop an EPUB file here, or click to select</p>
+                    <label for="file-input" id="file-label-main" class="btn btn-primary">Open EPUB</label>
+                </div>
+
+                <div id="loader">
+                    <div class="spinner"></div>
+                    <p>Loading book...</p>
+                </div>
+
+                <div id="reader-ui" style="position:relative;">
+                    <iframe id="content-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+                </div>
+            </main>
+        </div>
+        
+        <div id="settings-popover">
+            <div class="setting-group">
+                <div class="setting-row" style="margin-bottom: 8px;"><label>Appearance</label></div>
+                <div class="setting-controls">
+                    <button class="btn btn-setting" data-setting="theme" data-value="light"><i class="fa-solid fa-sun"></i> Light</button>
+                    <button class="btn btn-setting" data-setting="theme" data-value="sepia"><i class="fa-solid fa-leaf"></i> Sepia</button>
+                    <button class="btn btn-setting" data-setting="theme" data-value="dark"><i class="fa-solid fa-moon"></i> Dark</button>
+                </div>
+            </div>
+             <div class="setting-group">
+                <div class="setting-row">
+                    <label for="font-size-slider">Font Size</label>
+                    <input type="range" id="font-size-slider" class="range-slider" min="80" max="150" step="10">
+                </div>
+                 <div class="setting-row">
+                    <label for="line-height-slider">Line Height</label>
+                    <input type="range" id="line-height-slider" class="range-slider" min="1.4" max="2.2" step="0.1">
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-row">
+                    <label>Toggle Images</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-images-cb">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <label>Enable Dictionary</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-dictionary-cb" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div id="text-selection-popover">
+            <i class="fa-solid fa-plus"></i> Add to Notes
+        </div>
+        
+        <div id="dictionary-modal">
+            <div id="dictionary-modal-header">
+                <h3 id="dictionary-modal-word"></h3>
+                <i id="dictionary-modal-close" class="fa-solid fa-xmark"></i>
+            </div>
+            <div id="dictionary-modal-content"></div>
+        </div>
+        
+        <div id="notepad-modal">
+            <div id="notepad-header">
+                <h3>Notes</h3>
+                <i id="notepad-close" class="fa-solid fa-xmark"></i>
+            </div>
+            <textarea id="notepad-textarea" placeholder="Your notes are saved automatically..."></textarea>
+        </div>
+    </div>
+
+    <script src="f.js"></script>
+</body>
+</html>
