@@ -1,5 +1,5 @@
-        document.addEventListener('DOMContentLoaded', () => {
-            
+document.addEventListener('DOMContentLoaded', () => {
+            // Fixed js
             const fileInput = document.getElementById('file-input');
             const tocToggle = document.getElementById('toc-toggle');
             const prevBtn = document.getElementById('prev-btn');
@@ -31,6 +31,10 @@
             const lineHeightSlider = document.getElementById('line-height-slider');
             const toggleImagesCb = document.getElementById('toggle-images-cb');
             const toggleDictionaryCb = document.getElementById('toggle-dictionary-cb');
+            const voiceSelect = document.getElementById('voice-select');
+            const voiceRateSlider = document.getElementById('voice-rate-slider');
+            const saveSettingsBtn = document.getElementById('save-settings-btn');
+            const resetSettingsBtn = document.getElementById('reset-settings-btn');
 
           
             let book = null;
@@ -52,6 +56,13 @@
                 imagesVisible: true,
                 dictionaryEnabled: true
             };
+
+            let tempSettings = {...readerSettings};
+
+            let speechVoices = [];
+            let readQueue = [];
+            let isReading = false;
+            let currentHighlightEl = null;
 
             
             loadSettings();
@@ -83,14 +94,18 @@
             settingsPopover.addEventListener('click', (e) => {
                 const button = e.target.closest('.btn-setting');
                 if (button) {
-                    applySetting(button.dataset.setting, button.dataset.value);
+                    applySetting(button.dataset.setting, button.dataset.value, false);
                 }
             });
 
-            fontSizeSlider.addEventListener('input', (e) => applySetting('fontSize', e.target.value));
-            lineHeightSlider.addEventListener('input', (e) => applySetting('lineHeight', e.target.value));
-            toggleImagesCb.addEventListener('change', (e) => applySetting('imagesVisible', e.target.checked));
-            toggleDictionaryCb.addEventListener('change', (e) => applySetting('dictionaryEnabled', e.target.checked));
+            fontSizeSlider.addEventListener('input', (e) => applySetting('fontSize', e.target.value, false));
+            lineHeightSlider.addEventListener('input', (e) => applySetting('lineHeight', e.target.value, false));
+            toggleImagesCb.addEventListener('change', (e) => applySetting('imagesVisible', e.target.checked, false));
+            toggleDictionaryCb.addEventListener('change', (e) => applySetting('dictionaryEnabled', e.target.checked, false));
+            voiceRateSlider.addEventListener('input', (e) => applySetting('voiceRate', e.target.value, false));
+            voiceSelect.addEventListener('change', (e) => applySetting('voiceURI', e.target.value, false));
+            saveSettingsBtn.addEventListener('click', () => { readerSettings = {...tempSettings}; saveSettings(); updateUIForSettings(); settingsPopover.style.display='none'; });
+            resetSettingsBtn.addEventListener('click', () => { tempSettings = { theme: 'light', fontSize:100, lineHeight:1.7, imagesVisible:true, dictionaryEnabled:true, voiceURI:'', voiceRate:1.0 }; readerSettings = {...tempSettings}; saveSettings(); updateUIForSettings(); });
             
             document.querySelectorAll('.sidebar-tab').forEach(tab => {
                 tab.addEventListener('click', () => {
@@ -101,31 +116,64 @@
                 });
             });
 
-            function applySetting(setting, value) {
-                readerSettings[setting] = value;
-                saveSettings();
-                updateUIForSettings();
+            function applySetting(setting, value, persist = true) {
+                if (setting === 'fontSize' || setting === 'lineHeight') value = Number(value);
+                if (persist) {
+                    readerSettings[setting] = value;
+                    tempSettings = {...readerSettings};
+                    saveSettings();
+                    updateUIForSettings();
+                } else {
+                    tempSettings[setting] = value;
+                    updateUIForSettingsTemp();
+                }
             }
 
             function updateUIForSettings() {
                 document.body.className = `${readerSettings.theme}-theme`;
-
                 settingsPopover.querySelectorAll('.btn-setting[data-setting="theme"]').forEach(btn => {
                     btn.classList.toggle('active', btn.dataset.value === readerSettings.theme);
                 });
-
                 fontSizeSlider.value = readerSettings.fontSize;
                 lineHeightSlider.value = readerSettings.lineHeight;
                 toggleImagesCb.checked = readerSettings.imagesVisible;
                 toggleDictionaryCb.checked = readerSettings.dictionaryEnabled;
-
+                voiceRateSlider.value = readerSettings.voiceRate || 1.0;
+                populateVoices().then(() => {
+                    if (readerSettings.voiceURI) voiceSelect.value = readerSettings.voiceURI;
+                });
                 applyReaderStyles();
+            }
+
+            function updateUIForSettingsTemp() {
+                document.body.className = `${tempSettings.theme}-theme`;
+                settingsPopover.querySelectorAll('.btn-setting[data-setting="theme"]').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.value === tempSettings.theme);
+                });
+                fontSizeSlider.value = tempSettings.fontSize;
+                lineHeightSlider.value = tempSettings.lineHeight;
+                toggleImagesCb.checked = tempSettings.imagesVisible;
+                toggleDictionaryCb.checked = tempSettings.dictionaryEnabled;
+                voiceRateSlider.value = tempSettings.voiceRate || 1.0;
+                if (tempSettings.voiceURI) voiceSelect.value = tempSettings.voiceURI;
+                applyReaderStylesTemp();
+            }
+
+            function applyReaderStylesTemp() {
+                const iframeDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
+                if (!iframeDoc || !iframeDoc.head) return;
+                let style = iframeDoc.getElementById('reader-settings-style');
+                if (!style) { style = iframeDoc.createElement('style'); style.id = 'reader-settings-style'; iframeDoc.head.appendChild(style); }
+                const themeColors = { light: { bg: '#ffffff', fg: '#0a0a0a' }, sepia: { bg: '#fbf0d9', fg: '#5b4636' }, dark: { bg: '#1a1a1a', fg: '#fafafa' } };
+                const currentTheme = themeColors[tempSettings.theme];
+                style.textContent = `body { margin: 0 auto; padding: 2rem 3rem !important; line-height: ${tempSettings.lineHeight}; font-size: ${tempSettings.fontSize}%; color: ${currentTheme.fg} !important; background-color: ${currentTheme.bg} !important; } img, svg, video { display: ${tempSettings.imagesVisible ? 'block' : 'none'}; }`;
             }
             
             function loadSettings() {
                 const savedSettings = localStorage.getItem('epubReaderSettings');
                 if (savedSettings) {
                     readerSettings = {...readerSettings, ...JSON.parse(savedSettings)};
+                    tempSettings = {...readerSettings};
                 }
                 updateUIForSettings();
             }
@@ -771,19 +819,125 @@
             }
             
             function toggleReadAloud() {
-                const synth = window.speechSynthesis;
-                if (synth.speaking) {
-                    synth.cancel();
-                    readAloudBtn.classList.remove('active');
-                    return;
-                }
+                if (isReading) { stopReading(); return; }
+                prepareAndStartReading();
+            }
+
+            function populateVoices() {
+                return new Promise((resolve) => {
+                    const synth = window.speechSynthesis;
+                    function load() {
+                        speechVoices = synth.getVoices() || [];
+                        if (speechVoices.length === 0) {
+                            setTimeout(load, 50);
+                            return;
+                        }
+                        voiceSelect.innerHTML = '';
+                        const langs = {};
+                        speechVoices.forEach(v => {
+                            const opt = document.createElement('option');
+                            opt.value = v.voiceURI || v.name;
+                            opt.textContent = `${v.name} ${v.lang ? '(' + v.lang + ')' : ''}`;
+                            voiceSelect.appendChild(opt);
+                            langs[v.lang] = true;
+                        });
+                        const persianAdded = Array.from(voiceSelect.options).some(o => /fa|fa-?ir|persian/i.test(o.text));
+                        if (!persianAdded) {
+                            const pseudo = document.createElement('option');
+                            pseudo.value = 'fa-pseudo';
+                            pseudo.textContent = 'Persian (Fallback)';
+                            voiceSelect.appendChild(pseudo);
+                        }
+                        resolve();
+                    }
+                    load();
+                    synth.onvoiceschanged = load;
+                });
+            }
+
+            function prepareAndStartReading() {
                 try {
-                    const text = contentFrame.contentWindow.document.body.innerText || '';
-                    const utter = new SpeechSynthesisUtterance(text.replace(/(\r\n|\n|\r)/gm, " ").slice(0, 30000));
-                    synth.speak(utter);
-                    readAloudBtn.classList.add('active');
-                    utter.onend = () => readAloudBtn.classList.remove('active');
-                } catch (e) { console.warn(e); }
+                    const iframeDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
+                    if (!iframeDoc) return;
+                    readQueue = [];
+                    const walker = iframeDoc.createTreeWalker(iframeDoc.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, null, false);
+                    const lines = [];
+                    let node;
+                    while (node = walker.nextNode()) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            const txt = node.textContent.trim();
+                            if (txt.length > 0) lines.push({type:'text', node});
+                        } else if (node.nodeType === Node.ELEMENT_NODE) {
+                            const tag = node.tagName.toLowerCase();
+                            if (['p','h1','h2','h3','h4','li','blockquote'].includes(tag)) {
+                                const txt = node.innerText.trim();
+                                if (txt.length > 0) lines.push({type:'element', el: node});
+                            }
+                        }
+                    }
+                    lines.forEach(item => {
+                        if (item.type === 'text') readQueue.push(item.node.textContent.trim());
+                        else readQueue.push(item.el.innerText.trim());
+                    });
+                    startReadingQueue();
+                } catch(e) { console.warn(e); }
+            }
+
+            function startReadingQueue() {
+                if (!readQueue || readQueue.length === 0) return;
+                isReading = true;
+                readAloudBtn.classList.add('active');
+                speakNextChunk();
+            }
+
+            function speakNextChunk() {
+                if (!isReading) return;
+                if (readQueue.length === 0) { stopReading(); return; }
+                const text = readQueue.shift();
+                highlightTextForRead(text);
+                const synth = window.speechSynthesis;
+                const utter = new SpeechSynthesisUtterance(text);
+                const selectedVoiceURI = tempSettings.voiceURI || readerSettings.voiceURI || '';
+                if (selectedVoiceURI) {
+                    const match = speechVoices.find(v => (v.voiceURI === selectedVoiceURI) || (v.name === selectedVoiceURI));
+                    if (match) utter.voice = match;
+                }
+                utter.rate = Number(tempSettings.voiceRate || readerSettings.voiceRate || 1.0);
+                if (/fa|persian/i.test(utter.voice?.lang || '')) utter.lang = 'fa-IR';
+                if ((utter.lang || '').startsWith('fa') && !utter.voice) utter.voice = speechVoices.find(v => (v.lang || '').startsWith('fa')) || utter.voice;
+                utter.onend = () => { removeHighlight(); setTimeout(speakNextChunk, 60); };
+                utter.onerror = () => { removeHighlight(); setTimeout(speakNextChunk, 60); };
+                synth.speak(utter);
+            }
+
+            function highlightTextForRead(text) {
+                try {
+                    const iframeDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
+                    if (!iframeDoc) return;
+                    removeHighlight();
+                    const walk = iframeDoc.createTreeWalker(iframeDoc.body, NodeFilter.SHOW_ELEMENT, null);
+                    let n;
+                    while (n = walk.nextNode()) {
+                        if (n.innerText && n.innerText.trim().startsWith(text.slice(0,20))) {
+                            currentHighlightEl = n;
+                            currentHighlightEl.style.background = 'yellow';
+                            currentHighlightEl.scrollIntoView({behavior:'smooth', block:'center'});
+                            return;
+                        }
+                    }
+                } catch(e) { console.warn(e); }
+            }
+
+            function removeHighlight() {
+                try { if (currentHighlightEl) { currentHighlightEl.style.background = ''; currentHighlightEl = null; } } catch(e){}
+            }
+
+            function stopReading() {
+                isReading = false;
+                readQueue = [];
+                window.speechSynthesis.cancel();
+                readAloudBtn.classList.remove('active');
+                removeHighlight();
             }
 
             makeDraggable(document.getElementById('notepad-modal'));
